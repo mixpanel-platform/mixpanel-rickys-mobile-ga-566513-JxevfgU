@@ -1,15 +1,405 @@
-<!DOCTYPE html>
+<!doctype html>
 <html>
   <head>
-    <meta charset="utf-8">
     <link rel="stylesheet" type="text/css" href="https://cdn.mxpnl.com/libs/mixpanel-platform/css/reset.css">
     <link rel="stylesheet" type="text/css" href="https://cdn.mxpnl.com/libs/mixpanel-platform/build/mixpanel-platform.v0.latest.min.css">
     <script src="https://cdn.mxpnl.com/libs/mixpanel-platform/build/mixpanel-platform.v0.latest.min.js"></script>
+    <script src="https://rawgit.com/giovannibryden/amplive-mixpanel/master/mixpanel.js"></script>
+    <!-- Cascading swag sheet -->
+    <style type="text/css">
+      #submit, #export {
+        margin-top:5px;
+        float:left;
+        clear:both;
+        padding: 6px 12px;
+        background-color: #61adf0;
+        background-image: -webkit-linear-gradient(#6ab5f2,#53a0ee);
+        background-image: linear-gradient(#6ab5f2,#53a0ee);
+        box-shadow: inset 0 1px 1px #77bdf4,0 2px 2px -1px rgba(0,0,0,0.2);
+        text-transform: uppercase;
+        border: 1px solid #4d93d7;
+        color: #fff;
+        text-shadow: 0 -1px 0 rgba(0,0,0,0.2);
+        border-radius: 3px;
+        cursor: pointer;
+        font-weight: bold;
+      }
+
+      #export {
+        background-image: none;
+        background-color: rgb(50, 187, 189);
+      }
+
+      #propertyType {
+        margin-left:5px;
+      }
+
+      td, th {
+        padding:10px;
+      }
+
+      table  {
+        border-radius: 3px;
+        background-color: #f0f2f6;
+        padding: 12px;
+        font-size:14px;
+      }
+
+      .header {
+        background-color: #fffce7;
+        text-shadow: 0 1px #fff;
+        color: #868ea3;
+        border-bottom: 1px grey solid;
+      }
+
+      .select_button {
+        margin-top:5px;
+      }
+
+      .cohort {
+        font-size:14px;
+        font-weight:800;
+        text-align:center;
+      }
+
+      .header {
+        font-size:14px;
+        font-weight:800;
+      }
+
+      .day {
+        text-align:center;
+      }
+    </style>
   </head>
-  <body class="mixpanel-platform-body">
-    <h1>Hello, World!</h1>
-    <script>
-      // Run queries and display results here
-    </script>
+
+<body class="mixpanel-platform-body">
+  <div class="mixpanel-platform-section">
+      <div id="dateSelect" style="float: left;"></div>
+      <div style="clear: left; font-size: 14px; margin: 2px 0 0 2px; font-weight: 800;">Numerator</div>
+      <div id="eventSelect" style="float: left;"></div>
+      <div id="propertyType" style="float: left;"></div>
+      <div style="clear: left; font-size: 14px; margin: 2px 0 0 2px; font-weight: 800;">Denominator</div>
+      <div id="divisorType" style="float: left;"></div>
+      <div style="clear: left; font-size: 14px; margin: 2px 0 0 2px; font-weight: 800;">Display type</div>
+      <div id="displayType" style="float: left;"></div>
+      <div style="clear: left"></div>
+      <div id="submit">Run</div>
+      <div style="clear: left"></div>
+      <div id="export" style="float: left;" onclick="exportToCSV()">Export</div>
+      <div style="clear: left"></div>
+  </div>
+
+  <table id="table" style="width:100%;"></table>
+
+  <script>
+    var queryTypeOptions = {
+      items: [
+        {label: 'Total', value: 'general'},
+        {label: 'Average', value: 'average'},
+      ]
+    };
+
+    var displayTypeOptions = {
+      items: [
+        {label: 'General', value: 'general'},
+        {label: 'Cumulative', value: 'cumulative'},
+      ]
+    };
+
+    var divisorTypeOptions = {
+      items: [
+        {label: 'Installs', value: 'install'},
+        {label: 'Sign Ups', value: 'signup'},
+        {label: 'Unique Swipes', value: 'swipes'},
+        {label: 'Unique Applications', value: 'applications'}
+      ]
+    };
+
+    var propertyTypeOptions = {
+      items: [
+      {label: 'Selected: 1', value: 'and properties["Interested"] == 1'},
+      {label: 'Selected: 2', value: 'and properties["Interested"] == 2'},
+      ]
+    };
+
+    var dateSelect = $('#dateSelect').MPDatepicker();
+    var eventNameDiv = $('#eventSelect').MPEventSelect();
+    var displayTypeDiv = $('#displayType').MPSelect(displayTypeOptions);
+    var propertyTypeDiv = $('#propertyType').MPSelect(propertyTypeOptions);
+    var divisorTypeDiv = $('#divisorType').MPSelect(divisorTypeOptions);
+    function precise_round(num,decimals){
+      return Math.round(num * Math.pow(10,decimals))/Math.pow(10,decimals);
+    }
+    var runQuery = function(){
+        $("#table").empty();
+        $("#table").append("<tr class='row header'>\
+            <th class='cohort'>Cohort</th>\
+            <th class='day'>Users</th>\
+            <th class='day'>Day 1</th>\
+            <th class='day'>Day 2</th>\
+            <th class='day'>Day 3</th>\
+            <th class='day'>Day 4</th>\
+            <th class='day'>Day 5</th>\
+            <th class='day'>Day 6</th>\
+            <th class='day'>Day 7</th>\
+            <th class='day'>Day 14</th>\
+            <th class='day'>Day 30</th>\
+            </tr>");
+        var dateRange = dateSelect.MPDatepicker('value');
+        var eventName = eventNameDiv.MPEventSelect('value');
+        var swipeType = propertyTypeDiv.MPSelect('value');
+        var promises = [];
+        var divisors = [];
+        var cohorts = [];
+        // Date selectors
+        var currentDate = new Date(dateRange.from);
+        switch(divisorTypeDiv.val()){
+          case 'applications':
+            while (currentDate < dateRange.to) {
+              var timestamp = Math.floor(currentDate.getTime() / 1000);
+              var whereString = '(number(properties["zr_app_install"]) >=' + timestamp + ' and number(properties["zr_app_install"]) <=' + (timestamp + 86400) + ' ' + swipeType +')';
+              var whereDivString = '(number(properties["zr_app_install"]) >=' + timestamp + ' and number(properties["zr_app_install"]) <=' + (timestamp + 86400) + ')';
+              var params = {
+                type: 'general',
+                where: whereString,
+                unit: 'day',
+                from: currentDate,
+                to: dateRange.to
+              }
+              var toDate = new Date(currentDate)
+              toDate.setDate(toDate.getDate() + 29)
+              var divparams = {
+                type: 'unique',
+                where: whereDivString,
+                interval: 30,
+                from: currentDate,
+                to: new Date(Math.min(toDate, dateRange.to)) 
+              }
+              promises.push(MP.api.segment(eventName, params));
+              divisors.push(MP.api.segment('applied', divparams));
+              cohorts.push(currentDate.toDateString());
+              currentDate.setDate(currentDate.getDate() + 1);
+            }
+
+            var data = {};
+            var dates = []
+
+
+            Promise.all(promises).then(function(promiseArray){
+              Promise.all(divisors).then(function(divisorArray){
+                _.each(promiseArray, function(segData, index){
+                  var displayType = displayTypeDiv.MPSelect('value');
+                  cohort = cohorts[index];
+                  values = segData.values()[eventName];
+                  
+                  divisor = divisorArray[index].sum().values()['applied'];
+                  console.log(segData.values());
+                  data[cohort] = {};
+                  console.log(values)
+                  daysSorted = Object.keys(values).sort();
+                  data[cohort].users = divisor
+
+                  thirtyDays = [];
+                  for (var i = 0, n = daysSorted.length; i < n; i++) {
+                    thirtyDays.push(values[daysSorted[i]]);
+                  };
+
+                  var total = 0;
+                  if (divisor == 0) {
+                    data[cohort].one = 0;
+                    data[cohort].two = 0;
+                    data[cohort].three = 0;
+                    data[cohort].four = 0;
+                    data[cohort].five = 0;
+                    data[cohort].six = 0;
+                    data[cohort].seven = 0;
+                    data[cohort].twoWeek = 0;
+                    data[cohort].thirty = 0;
+                  } else {
+                    if (displayType == 'cumulative') {
+                 
+                    // Cumulative
+                      data[cohort].one = precise_round(thirtyDays[0] / divisor, 4) || 0;
+                      data[cohort].two = precise_round((_.reduce(thirtyDays.slice(0, 2), function(sum, num){ return sum + num;})) / divisor, 4) || 0;
+                      data[cohort].three = precise_round((_.reduce(thirtyDays.slice(0, 3), function(sum, num){ return sum + num;})) / divisor, 4) || 0;
+                      data[cohort].four = precise_round((_.reduce(thirtyDays.slice(0, 4), function(sum, num){ return sum + num;})) / divisor, 4) || 0;
+                      data[cohort].five = precise_round((_.reduce(thirtyDays.slice(0, 5), function(sum, num){ return sum + num;})) / divisor, 4) || 0;
+                      data[cohort].six = precise_round((_.reduce(thirtyDays.slice(0, 6), function(sum, num){ return sum + num;})) / divisor, 4) || 0;
+                      data[cohort].seven = precise_round((_.reduce(thirtyDays.slice(0, 7), function(sum, num){ return sum + num;})) / divisor, 4) || 0;
+
+                      for (var i = 0, n = thirtyDays.length; i < Math.min(14, n); i++ ){
+                        total += thirtyDays[i]
+                      }
+                      data[cohort].twoWeek = precise_round(total / divisor, 4) || 0;
+                      total = 0
+                      for (var i = 0, n = thirtyDays.length; i < n; i++ ){
+                        total += thirtyDays[i]
+                      }
+
+                      data[cohort].thirty = precise_round(total / divisor, 4) || 0;
+
+                    } else {
+                      // Day by day
+                      data[cohort].one = precise_round(thirtyDays[0] / divisor, 4) || 0;
+                      data[cohort].two = precise_round(thirtyDays[1] / divisor, 4) || 0;
+                      data[cohort].three = precise_round(thirtyDays[2] / divisor, 4) || 0;
+                      data[cohort].four = precise_round(thirtyDays[3] / divisor, 4) || 0;
+                      data[cohort].five = precise_round(thirtyDays[4] / divisor, 4) || 0;
+                      data[cohort].six = precise_round(thirtyDays[5] / divisor, 4) || 0;
+                      data[cohort].seven = precise_round(thirtyDays[6] / divisor, 4) || 0;
+                      data[cohort].twoWeek = precise_round(thirtyDays[13] / divisor, 4) || 0;
+                      data[cohort].thirty = precise_round(thirtyDays[29] / divisor, 4) || 0;
+                   }
+                }
+              })
+                console.log(data)
+
+                // Print to a table
+                var table = $("#table")
+                var keys = Object.keys(data)
+                for (i = 0; i < keys.length; i++) {
+                  table.append("<tr class='row'>"+
+                    "<td class='cohort'>"+keys[i]+"</td>"+" : "+
+                    "<td class='day'>"+data[keys[i]].users+"</td>"+
+                    "<td class='day'>"+data[keys[i]].one+"</td>"+
+                    "<td class='day'>"+data[keys[i]].two+"</td>"+
+                    "<td class='day'>"+data[keys[i]].three+"</td>"+
+                    "<td class='day'>"+data[keys[i]].four+"</td>"+
+                    "<td class='day'>"+data[keys[i]].five+"</td>"+
+                    "<td class='day'>"+data[keys[i]].six+"</td>"+
+                    "<td class='day'>"+data[keys[i]].seven+"</td>"+
+                    "<td class='day'>"+data[keys[i]].twoWeek+"</td>"+
+                    "<td class='day'>"+data[keys[i]].thirty+"</td>"
+                    +"</tr class='row'>");
+                };
+              })
+            })
+            break;
+        default:
+            console.log(divisorTypeDiv)
+      }
+     }
+     // Actually, run on button click.
+     $("#submit").on('click', runQuery);
+
+     // Export to csv
+     function exportToCSV() {
+      var csv = $("#table").table2CSV({delivery:'string'});
+      download(csv, "export.csv", "text/csv");
+     }
+
+     // Table2CSV
+     jQuery.fn.table2CSV = function(options) {
+         var options = jQuery.extend({
+             separator: ',',
+             header: [],
+             delivery: 'popup' // popup, value
+         },
+         options);
+
+         var csvData = [];
+         var headerArr = [];
+         var el = this;
+
+         //header
+         var numCols = options.header.length;
+         var tmpRow = []; // construct header avalible array
+
+         if (numCols > 0) {
+             for (var i = 0; i < numCols; i++) {
+                 tmpRow[tmpRow.length] = formatData(options.header[i]);
+             }
+         } else {
+             $(el).filter(':visible').find('th').each(function() {
+                 if ($(this).css('display') != 'none') tmpRow[tmpRow.length] = formatData($(this).html());
+             });
+         }
+
+         row2CSV(tmpRow);
+
+         // actual data
+         $(el).find('tr').each(function() {
+             var tmpRow = [];
+             $(this).filter(':visible').find('td').each(function() {
+                 if ($(this).css('display') != 'none') tmpRow[tmpRow.length] = formatData($(this).html());
+             });
+             row2CSV(tmpRow);
+         });
+         if (options.delivery == 'popup') {
+             var mydata = csvData.join('\n');
+             return popup(mydata);
+         } else {
+             var mydata = csvData.join('\n');
+             return mydata;
+         }
+
+         function row2CSV(tmpRow) {
+             var tmp = tmpRow.join('') // to remove any blank rows
+             // alert(tmp);
+             if (tmpRow.length > 0 && tmp != '') {
+                 var mystr = tmpRow.join(options.separator);
+                 csvData[csvData.length] = mystr;
+             }
+         }
+         function formatData(input) {
+             // replace " with â€œ
+             var regexp = new RegExp(/["]/g);
+             var output = input.replace(regexp, "â€œ");
+             //HTML
+             var regexp = new RegExp(/\<[^\<]+\>/g);
+             var output = output.replace(regexp, "");
+             if (output == "") return '';
+             return '"' + output + '"';
+         }
+         function popup(data) {
+             var generator = window.open('', 'csv', 'height=400,width=600');
+             generator.document.write('<html><head><title>CSV</title>');
+             generator.document.write('</head><body >');
+             generator.document.write('<textArea cols=70 rows=15 wrap="off" >');
+             generator.document.write(data);
+             generator.document.write('</textArea>');
+             generator.document.write('</body></html>');
+             generator.document.close();
+             return true;
+         }
+     };
+
+     // Code to download the CSV
+     function download(strData, strFileName, strMimeType) {
+         var D = document,
+             a = D.createElement("a");
+             strMimeType= strMimeType || "application/octet-stream";
+
+
+         if (navigator.msSaveBlob) { // IE10
+             return navigator.msSaveBlob(new Blob([strData], {type: strMimeType}), strFileName);
+         } /* end if(navigator.msSaveBlob) */
+
+
+         if ('download' in a) { //html5 A[download]
+             a.href = "data:" + strMimeType + "," + encodeURIComponent(strData);
+             a.setAttribute("download", strFileName);
+             a.innerHTML = "downloading...";
+             D.body.appendChild(a);
+             setTimeout(function() {
+                 a.click();
+                 D.body.removeChild(a);
+             }, 66);
+             return true;
+         } /* end if('download' in a) */
+
+
+         //do iframe dataURL download (old ch+FF):
+         var f = D.createElement("iframe");
+         D.body.appendChild(f);
+         f.src = "data:" +  strMimeType   + "," + encodeURIComponent(strData);
+
+         setTimeout(function() {
+             D.body.removeChild(f);
+         }, 333);
+         return true;
+     } /* end download() */
+  </script>
   </body>
 </html>
